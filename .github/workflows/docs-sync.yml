@@ -1,0 +1,59 @@
+name: Docs Sync
+
+# Run while a PR to main is OPEN: when it's opened, when new commits are pushed
+# (synchronize), and when it's reopened. The agent keeps a docs PR in sync with
+# the current state of this PR — opening, updating, or closing it as needed.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+jobs:
+  docs-sync:
+    runs-on: ubuntu-latest
+    # Avoid piling up runs when commits land quickly; cancel the in-flight run per PR.
+    concurrency:
+      group: docs-sync-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout code repo
+        uses: actions/checkout@v4
+
+      - name: Checkout docs repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.DOCS_REPO }}
+          token: ${{ secrets.DOCS_REPO_PAT }}
+          path: docs-checkout
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run documentation sync agent
+        env:
+          # Change 2: provider choice ("anthropic" or "openai") + matching key.
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+          # Docs repo write access.
+          DOCS_REPO: ${{ vars.DOCS_REPO }}
+          DOCS_REPO_PAT: ${{ secrets.DOCS_REPO_PAT }}
+
+          # Change 1: Slack notification for the docs PR.
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+          # Auto-provided by the runner.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CODE_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DOCS_REPO_DIR: docs-checkout
+        run: npm start
